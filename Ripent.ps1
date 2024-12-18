@@ -1,8 +1,9 @@
 <# Ripent frontend with menu
+    Simply place into your bsp folder and run the script.
+    This requires the ripent executable to be present on your system. This can be obtained by installing the Sven Co-op SDK from Steam.
 -Outerbeast
 #>
 $host.ui.RawUI.WindowTitle = "Ripent"
-$description = ""
 $optExport = New-Object System.Management.Automation.Host.ChoiceDescription '&Export', 'Extracts entity data into .ent file from a .bsp file'
 $optImport = New-Object System.Management.Automation.Host.ChoiceDescription '&Import', 'Imports entity data from a .ent file into a .bsp file'
 $optExit = New-Object System.Management.Automation.Host.ChoiceDescription '&Close', 'Close'
@@ -63,6 +64,7 @@ function RipEntities($action)
     Get-ChildItem -Filter "$strBspName.bsp" | Foreach-Object {
 
         $path = [PathData]::strRipentPath
+        $blBSProcessed = $false
 
         if( $action -eq 1 )
         {
@@ -71,8 +73,19 @@ function RipEntities($action)
             if( Test-Path -Path $s )
             {
                 Write-Host "Importing entities into: $_`n"
-                & "$path\$exe" -import $_.Name
-                $BSPS += $_.FullName
+
+                try
+                {
+                    & "$path\$exe" -import $_.Name -console 0
+                    $blBSProcessed = $true
+                }
+                catch
+                {
+                    Write-Error "Ripent executable not found."
+                    SearchRipentInstall
+
+                    return
+                }
             }
             else
             {
@@ -82,7 +95,24 @@ function RipEntities($action)
         else
         {
             Write-Host "Exporting entities from: $_`n"
-            & "$path\$exe" -export $_.Name
+
+            try
+            {
+                & "$path\$exe" -export $_.Name -console 0
+                $blBSProcessed = $true
+            }
+            catch
+            {
+                Write-Error "Ripent executable not found."
+                SearchRipentInstall
+
+                return
+            }
+            
+        }
+
+        if( $blBSProcessed )
+        {
             $BSPS += $_.FullName
         }
     }
