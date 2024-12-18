@@ -1,8 +1,10 @@
 <# Ripent frontend with menu
 -Outerbeast
 #>
-$optExport = New-Object System.Management.Automation.Host.ChoiceDescription '&Export', 'Export Entities'
-$optImport = New-Object System.Management.Automation.Host.ChoiceDescription '&Import', 'Import Entities'
+$host.ui.RawUI.WindowTitle = "Ripent"
+$description = ""
+$optExport = New-Object System.Management.Automation.Host.ChoiceDescription '&Export', 'Extracts entity data into .ent file from a .bsp file'
+$optImport = New-Object System.Management.Automation.Host.ChoiceDescription '&Import', 'Imports entity data from a .ent file into a .bsp file'
 $optExit = New-Object System.Management.Automation.Host.ChoiceDescription '&Close', 'Close'
 
 $menu = [System.Management.Automation.Host.ChoiceDescription[]]( 
@@ -10,44 +12,118 @@ $menu = [System.Management.Automation.Host.ChoiceDescription[]](
     $optImport,
     $optExit
 )
-$choice
 
-function EntExport
+$exe = if ( [Environment]::Is64BitProcess ) { "Ripent_x64.exe" } else { "Ripent.exe" }
+$strDataPath = [Environment]::GetFolderPath('LocalApplicationData')
+
+class PathData
 {
-    Get-ChildItem -Filter "$strBspName.bsp" | Foreach-Object {
-
-        Write-Host "Exporting Ents: $_"
-        .\Ripent_x64.exe -export $_.Name
-    }
-
-    Write-Host "Finished entity exports.`n"
+    static [string] $strRipentPath
 }
 
-function EntImport
+function Init
 {
-    Get-ChildItem -Filter "$strBspName.bsp" | Foreach-Object {
-
-        Write-Host "Importing Ents: $_"
-        .\Ripent_x64.exe -import $_.Name
-    }
-
-    Write-Host "Finished entity imports.`n"
-
-    $confirmation = Read-Host "Do you want to remove .ent files"
-
-    if( $confirmation -eq 'y')
+    if( Test-Path -Path "$strDataPath\ripent_path.txt"  )
     {
-        Get-ChildItem -Filter "$strBspName.ent" | Foreach-Object {
+        [PathData]::strRipentPath = ( Get-Content "$strDataPath\ripent_path.txt" -Raw ).Trim()
 
-            Write-Host "Removing entity file: $_"
-            Remove-Item $_
+        if( ![PathData]::strRipentPath )
+        {
+            SearchRipentInstall
         }
     }
+    else
+    {
+        SearchRipentInstall
+    }
 }
+
+function SearchRipentInstall
+{
+    Write-Host "Searching for Ripent install, please wait..." -ForegroundColor Gray
+
+    $drives = ( get-psdrive | Where-Object { $_.provider -match 'FileSystem' } ).root
+    $strRipentLocation = Get-ChildItem -Path $drives -Filter $exe -Recurse -ErrorAction SilentlyContinue -Force | Select-Object -First 1
+
+    if( !$strRipentLocation )
+    {
+        Write-Error "Ripent executable not found.`nPlease manually set the path to your Sven Co-op addons folder, or reinstall Sven Co-op SDK and try again."
+    }
+    else
+    {
+        [PathData]::strRipentPath = $strRipentLocation.Directory.FullName
+        [PathData]::strRipentPath | Out-File -FilePath "$strDataPath\ripent_path.txt"
+    }
+}
+
+function RipEntities($action)
+{
+    $BSPS = @()
+
+    Get-ChildItem -Filter "$strBspName.bsp" | Foreach-Object {
+
+        $path = [PathData]::strRipentPath
+
+        if( $action -eq 1 )
+        {
+            $s = [System.IO.Path]::ChangeExtension( $_.FullName, 'ent' )
+
+            if( Test-Path -Path $s )
+            {
+                Write-Host "Importing entities into: $_`n"
+                & "$path\$exe" -import $_.Name
+                $BSPS += $_.FullName
+            }
+            else
+            {
+                Write-Warning "No .ent file to import for: $_. Skipping...`n"
+            }
+        }
+        else
+        {
+            Write-Host "Exporting entities from: $_`n"
+            & "$path\$exe" -export $_.Name
+            $BSPS += $_.FullName
+        }
+    }
+
+    $i = $BSPS.Length
+
+    if( !$i )
+    {
+        Write-Host "No BSPs were processed.`n"
+        return
+    }
+    else
+    {
+        Write-Host "$i BSPs processed.`n" -ForegroundColor Green
+    }
+
+    if( $action -ne 1 )
+    {
+        return
+    }
+
+    $confirmation = Read-Host "Do you want to remove .ent files?"
+
+    if( $confirmation -eq 'y' )
+    {
+        Get-ChildItem -Filter "$strBspName.ent" | ForEach-Object {
+
+            if( $BSPS -contains [System.IO.Path]::ChangeExtension( $_.FullName, 'bsp' ) )
+            {
+                Write-Host "Removing entity file: $_"
+                $_
+            }
+        } | Remove-Item
+    }
+}
+
+Init
 
 do
 {
-    $choice = $host.ui.PromptForChoice( "Ripent", "Select an option:", $menu, 0 )
+    $choice = $host.ui.PromptForChoice( "Ripent`nExtract and Import BSP entity data`n`n", "Select an option:", $menu, 0 )
 
     if( $choice -eq 2 )
     {
@@ -61,11 +137,13 @@ do
         $strBspName = "*"
     }
 
-    switch( $choice )
+    if( $choice -eq 2 )
     {
-        0 { EntExport }
-        1 { EntImport }
-        2 { exit }
+        exit
+    }
+    else
+    {
+        RipEntities( $choice )
     }
 }
 while( $choice -ne 2 )
